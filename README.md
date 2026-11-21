@@ -1,2 +1,157 @@
-# Web-Page-Code-Capture-Extension
-Used to retrieve the source code of web pages; after downloading, AI can be used to create browser extensions based on the source code.（用来获取网页的源码，下载后可根据源码让AI制作浏览器扩展）
+# 网页完整代码捕获 v1.1
+
+一键抓取当前标签页**渲染后的完整 HTML（含所有 iframe）**，并生成一份排查用的诊断摘要，可复制、下载，也能自动记录每次点击后的页面片段。
+
+这是一个独立的 Chrome / Edge MV3 扩展，最初为排查易凯 ERP 报价单一览表（`QuotBillSearchResult.ihtm`）里「成交」按钮不生效而做，**不修改、不依赖其他扩展**。
+
+> 抓的是浏览器渲染后的 DOM，不是服务器返回的原始 HTML；外部 JS / CSS 只列出地址，不下载文件内容。
+
+---
+
+## 1. 安装 / 升级
+
+1. 打开 `edge://extensions`，开启右上角「**开发人员模式**」
+2. 点「**加载解压缩的扩展程序**」，选择本文件夹 `网页源码捕获插件_v1.1`
+3. 点工具栏拼图图标，把「**网页完整代码捕获**」固定到工具栏
+4. 打开要排查的页面，点蓝色图标，弹窗会自动捕获一次
+
+**改过代码或换过目录后**：必须在 `edge://extensions` 点该扩展的「重新加载」，再对目标页面按 `Ctrl+Shift+R` 硬刷新。扩展卡片版本号应为 **1.1.0**，导出文件抬头应为 `网页完整代码捕获 v1.1`。
+
+> ⚠️ **本机当前状态（2026-11-21 实测）**：Edge 扩展注册记录里仍指向 `桌面\网页源码捕获插件_v1.0`，但该目录已不存在，桌面上只剩 `网页源码捕获插件_v1.1`。需要先在扩展页**移除旧条目**，再加载 v1.1 目录，否则图标点了也不会正常工作。
+>
+> 排查「装了没生效」时，可查看 `Edge\User Data\Default\Secure Preferences` 中 `extensions.settings` 各条目的 `path` 与 `state`（`state: 1` 才是启用），确认 Edge 到底加载了哪个目录。
+
+---
+
+## 2. 界面按钮
+
+| 按钮 | 作用 |
+|---|---|
+| **① 复制诊断摘要** | 复制短摘要到剪贴板。**排查问题时优先发这个**，短、可直接粘贴 |
+| **② 复制完整源码** | 复制全部内容；可能很大（几十~几百 KB），粘贴容易被截断 |
+| **③ 下载完整源码 .txt** | 下载为 `网页完整源码_YYYYMMDD_HHMMSS.txt`，内容大时用这个，把文件拖进对话即可 |
+| 诊断摘要 / 完整源码 | 切换下方文本框的预览内容；文本框**只显示前 200 KB**，完整内容请用复制 / 下载 |
+| 重新捕获 | 重新抓取一次（页面 AJAX 重绘、翻页后可用） |
+
+状态栏会显示 `捕获完成：N/M 个 frame，完整源码 xx KB，诊断摘要 xx KB`；失败时显示具体错误。
+
+---
+
+## 3. 自动记录（实时操作复盘）
+
+勾选「**开启自动记录**」后，在页面上正常操作（点成交、翻页、改查询条件等），每次 `click` / `change` 后 **400 ms** 自动存一份轻量快照：
+
+- 快照复用 `ykCaptureFrame('summary')`，**不含完整 HTML**，只有诊断字段，体积小
+- 最多保留 **30 条**，超出自动丢弃最旧的
+- 「复制全部记录」/「下载全部记录」→ `网页操作记录_YYYYMMDD_HHMMSS.txt` /「清空」
+- 记录每条含：时间、URL、标题、点击目标 outerHTML、已改造元素数、根元素 `data-*` 标记、「成交」元素片段、表格与 iframe 摘要
+- 开关默认**关闭**；数据只存在本机 `chrome.storage.local`，不上传
+
+---
+
+## 4. 诊断摘要字段说明
+
+摘要按 **frame 分块**（顶层 TOP 和每个 iframe 各一块），每块包含：
+
+| 字段 | 含义 / 用途 |
+|---|---|
+| `URL` / `标题` / `readyState` / `charset` | 判断目标页面是不是在 iframe 里、URL 是否匹配注入规则 |
+| `body 大小` | 粗略判断页面是否加载完整 |
+| `html 根元素 data-* 标记` | **判断其它扩展脚本到底有没有注入**。例如出现 `data-yk-deal-btn-loaded` 说明「成交大按钮」脚本跑起来了 |
+| `★ 已被「成交大按钮」改造的元素数` | 统计 `[data-yk-deal-btn]` 的数量 |
+| `★ 文字为「成交」的元素` | 最多 20 个命中，前 5 个给详情：标签、文本、`outerHTML`、所在 `td` 的文本与完整 HTML、是否已被改造 |
+| `★ td 内裸「成交」文本节点` | 没有元素包裹、直接写在 td 里的「成交」文字 |
+| `表格` | 最多 12 个表格：行数 + 首行文字 |
+| `iframe` | 最多 20 个：id / name / src / 绝对 URL / 是否同源可读 |
+| `外部 script/css` | 最多 30 条，只列绝对地址 |
+| `表单数` | `document.forms.length` |
+
+### 三种典型结论速查
+
+| 看到的现象 | 结论 | 下一步 |
+|---|---|---|
+| 根 `data-*` 里**没有** `data-yk-deal-btn-loaded` | 目标脚本根本没注入 | 重新加载扩展 / 确认 Edge 加载的是哪个目录 |
+| 有根标记，但「已被改造元素数 = 0」 | 注入了，选择器没匹配上 | 看「文字为成交的元素」的 `outerHTML` 和所在 `td` HTML，按真实结构改选择器 |
+| 改造数 > 0，但页面看不到按钮 | 样式被覆盖或页面缓存 | `Ctrl+Shift+R` 硬刷新，再检查 CSS 优先级 |
+
+嵌套情况（如 `<a><font>成交</font></a>`）只记最内层，避免重复计数。
+
+---
+
+## 5. 导出文件格式
+
+**诊断摘要**与**完整源码**都以同一段元信息开头：
+
+```
+===== 网页完整代码捕获 v1.1 | 2026-11-21 16:33:42 =====
+标签页标题: ...
+标签页 URL: ...
+Frame 总数: 1（成功捕获 1 个）
+```
+
+- **诊断摘要**：元信息 + `===== 诊断摘要 =====` + 每个 frame 的字段列表
+- **完整源码**：元信息 + 诊断摘要 + 每个 frame 一段
+  `===== [Frame 0] TOP | http://... =====`，随后是 `doctype + documentElement.outerHTML`
+- 捕获失败的 frame 会写明 `捕获失败: <错误信息> | URL`，不会静默丢失
+
+---
+
+## 6. 文件结构
+
+| 文件 | 作用 |
+|---|---|
+| `manifest.json` | MV3 配置：名称、版本 1.1.0、权限、popup、图标、content script |
+| `popup.html` | 弹窗界面（宽 440px），含三个主按钮、预览文本框、自动记录区 |
+| `popup.js` | 弹窗逻辑：枚举所有 frame → 逐 frame 注入捕获函数 → 汇总格式化 → 复制 / 下载 / 自动记录导出 |
+| `capture-core.js` | 核心纯函数 `ykCaptureFrame(mode)`，`full` 返回完整 HTML + 摘要，`summary` 只返回摘要 |
+| `content-autolog.js` | 常驻 content script（仅顶层 frame），监听 click / change 存快照 |
+| `icon16/48/128.png` | 工具栏与扩展页图标 |
+
+**维护提示**：`ykCaptureFrame` 会被 `chrome.scripting.executeScript` 序列化后注入页面执行，**函数体必须完全自包含**，不能引用外部变量或闭包；它同时被 popup 与自动记录复用。
+
+---
+
+## 7. 权限说明
+
+| 权限 | 用途 |
+|---|---|
+| `activeTab` / `tabs` | 读取当前活动标签页的 URL、标题、id |
+| `scripting` | 向各 frame 注入 `ykCaptureFrame` 并取回结果 |
+| `webNavigation` | `getAllFrames` 枚举标签页内所有 frame（含 iframe） |
+| `storage` | 保存自动记录开关与最多 30 条快照（`chrome.storage.local`） |
+| `clipboardWrite` | 「复制」按钮写入剪贴板 |
+| `host_permissions: <all_urls>` | 允许在任意站点注入抓取（这是本插件的核心能力） |
+
+权限范围较宽，但所有数据只在本机处理：复制 / 下载都由用户主动点击触发，没有任何上传或网络请求。
+
+---
+
+## 8. 版本历史
+
+| 版本 | 说明 |
+|---|---|
+| **1.0.0** | 初版：完整 HTML + 所有 iframe + 诊断摘要 + 自动记录 |
+| **1.1.0** | 修复 `executeScript` 的 `target` 参数：v1.0 写成 `frameId`（单数），Chrome MV3 的 `InjectionTarget` 要求 `frameIds: [id]`（复数数组），会报 `Unexpected property: 'frameId'`，导致 **成功捕获 0 个**、导出文件里没有页面源码。v1.1 改为 `frameIds: [fr.frameId]`，并新增**兜底**：所有 frame 都注入失败时，退化为不指定 frame 再抓一次，避免再产出空文件；界面与导出抬头版本号改为 v1.1 |
+
+---
+
+## 9. 常见问题
+
+**Q：直接双击 `popup.html` 打开，按钮是灰的？**
+正常。非扩展环境下没有 `chrome.*` API，弹窗会显示「界面预览模式」并禁用按钮。必须从 Edge 工具栏的扩展图标打开。
+
+**Q：导出文件里「成功捕获 0 个」？**
+说明加载的还是 v1.0 代码。到 `edge://extensions` 确认卡片版本是 **1.1.0**、导出抬头是 `网页完整代码捕获 v1.1`；必要时移除旧条目后重新加载本目录。
+
+**Q：改了代码没生效？**
+改过 `manifest.json` 或 JS 后必须点扩展的「重新加载」，再对页面 `Ctrl+Shift+R`。同一台机器上若存在多个相似目录，务必通过扩展页的版本号和注册路径确认实际加载的是哪一个。
+
+**Q：点了「复制」没反应？**
+优先走 `navigator.clipboard.writeText`，失败会退化到 `document.execCommand('copy')`；仍失败时内容已填入文本框并自动全选，手动 `Ctrl+C` 即可。
+
+**Q：数据安全吗？会不会把页面内容传出去？**
+不会。插件不发起任何网络请求，快照只存本机 `chrome.storage.local`。在网银、后台等敏感页面建议关闭「自动记录」，用完点「清空」。
+
+---
+
+本 README 依据 `网页源码捕获插件_v1.1` 目录内 `manifest.json`、`popup.html`、`popup.js`、`capture-core.js`、`content-autolog.js` 源码逐项核对编写；仅新增文档，未改动任何插件代码。

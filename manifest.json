@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "网页完整代码捕获",
+  "version": "1.1.0",
+  "description": "一键捕获当前页面完整 HTML（含所有 iframe）并生成诊断摘要，可复制、下载，也可自动记录每次点击后的页面片段。",
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "scripting",
+    "webNavigation",
+    "storage",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "网页完整代码捕获",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["capture-core.js", "content-autolog.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}
